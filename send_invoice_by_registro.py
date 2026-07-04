@@ -10,7 +10,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import engine
 
-ALLOWED_REGISTRY_COLUMNS = {"folio", "folio_char", "serie", "id"}
+ALLOWED_REGISTRY_COLUMNS = {"id", "folio", "folio_char", "serie"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -27,8 +27,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--registro-campo",
-        default="folio",
-        help="Campo de busqueda en cabecera (folio, folio_char, serie, id).",
+        default="id",
+        help="Campo de busqueda en cabecera (id, folio, folio_char, serie).",
     )
     parser.add_argument(
         "--dry-run",
@@ -51,16 +51,23 @@ def _fetch_header(registro: str, registro_campo: str) -> dict[str, Any]:
         allowed = ", ".join(sorted(ALLOWED_REGISTRY_COLUMNS))
         raise ValueError(f"registro-campo invalido. Permitidos: {allowed}")
 
+    registro_value: Any = registro
+    if registro_campo == "id":
+        try:
+            registro_value = int(registro)
+        except ValueError as exc:
+            raise ValueError("Cuando usas --registro-campo id, --registro debe ser numerico.") from exc
+
     sql = text(
         f"""
         SELECT TOP 1 *
         FROM [{settings.invoice_source_db}].[{settings.invoice_source_schema}].[{settings.invoice_source_table}]
         WHERE [{registro_campo}] = :registro
-        ORDER BY [folio] DESC
+        ORDER BY [id] DESC
         """
     )
     with engine.connect() as conn:
-        row = conn.execute(sql, {"registro": registro}).fetchone()
+        row = conn.execute(sql, {"registro": registro_value}).fetchone()
     if row is None:
         raise LookupError("No se encontro factura para el registro indicado.")
     return dict(row._mapping)

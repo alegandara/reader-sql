@@ -102,6 +102,7 @@ Este procedimiento:
 - intenta buscar detalles en `KardexVH.dbo.FacturasDetalle`,
 - arma el payload para `POST /invoices`,
 - y envia la factura al API remoto.
+- por defecto busca por `id` (registro fisico de la tabla).
 
 Antes de ejecutar, configura en `.env`:
 - `INVOICE_API_BASE_URL`
