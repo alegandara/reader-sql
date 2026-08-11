@@ -58,6 +58,18 @@ Tambien puedes escoger columnas especificas:
 python run_facturas_topn.py --top 100 --columns ruc_emisor,serie,folio,neto
 ```
 
+Para traer los ultimos registros (por `id` descendente):
+
+```bash
+python run_facturas_topn.py --top 10 --last
+```
+
+Puedes elegir otra columna de orden:
+
+```bash
+python run_facturas_topn.py --top 10 --last --order-by fecha_emision
+```
+
 ## Uso en Windows (actualizacion constante)
 
 ### 1) Primera instalacion en Windows PowerShell

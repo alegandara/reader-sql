@@ -78,6 +78,16 @@ def parse_args() -> argparse.Namespace:
             "Ejemplo: ruc_emisor,serie,folio,neto"
         ),
     )
+    parser.add_argument(
+        "--last",
+        action="store_true",
+        help="Trae los ultimos registros (ORDER BY DESC).",
+    )
+    parser.add_argument(
+        "--order-by",
+        default="id",
+        help="Columna para ordenar cuando usas --last. Default: id.",
+    )
     return parser.parse_args()
 
 
@@ -106,9 +116,14 @@ def main() -> int:
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+    if not COLUMN_RE.match(args.order_by):
+        print("Error: Nombre invalido en --order-by.", file=sys.stderr)
+        return 1
 
     columns_sql = ", ".join(f"[{col}]" for col in columns)
     query = f"SELECT TOP (:top_n) {columns_sql} FROM [KardexVH].[dbo].[Facturas]"
+    if args.last:
+        query += f" ORDER BY [{args.order_by}] DESC"
 
     try:
         with engine.connect() as conn:
