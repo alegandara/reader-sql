@@ -52,6 +52,12 @@ Opcionalmente puedes cambiar el tope:
 python run_facturas_topn.py --top 200
 ```
 
+Tambien puedes escoger columnas especificas:
+
+```bash
+python run_facturas_topn.py --top 100 --columns ruc_emisor,serie,folio,neto
+```
+
 ## Uso en Windows (actualizacion constante)
 
 ### 1) Primera instalacion en Windows PowerShell
