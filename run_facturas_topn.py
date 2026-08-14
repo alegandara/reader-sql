@@ -112,9 +112,9 @@ def _parse_columns(columns_arg: str) -> list[str]:
 
 def _get_table_columns() -> list[str]:
     query = text(
-        """
+        f"""
         SELECT COLUMN_NAME
-        FROM INFORMATION_SCHEMA.COLUMNS
+        FROM [{SOURCE_DB}].INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = :schema_name
           AND TABLE_NAME = :table_name
         ORDER BY ORDINAL_POSITION

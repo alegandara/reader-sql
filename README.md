@@ -67,7 +67,7 @@ python run_facturas_topn.py --top 10 --last
 Puedes elegir otra columna de orden:
 
 ```bash
-python run_facturas_topn.py --top 10 --last --order-by fecha_emision
+python run_facturas_topn.py --top 10 --last --order-by fecha_emisi
 ```
 
 ## Uso en Windows (actualizacion constante)
