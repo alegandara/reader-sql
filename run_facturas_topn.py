@@ -128,6 +128,24 @@ def _get_table_columns() -> list[str]:
     return [str(row[0]) for row in rows]
 
 
+def _resolve_columns_case_insensitive(
+    requested_columns: list[str],
+    table_columns: list[str],
+) -> tuple[list[str], list[str]]:
+    table_columns_map = {col.lower(): col for col in table_columns}
+    resolved: list[str] = []
+    missing: list[str] = []
+
+    for col in requested_columns:
+        real_col = table_columns_map.get(col.lower())
+        if real_col is None:
+            missing.append(col)
+        else:
+            resolved.append(real_col)
+
+    return resolved, missing
+
+
 def main() -> int:
     args = parse_args()
     if args.top < 1 or args.top > 1000:
@@ -148,8 +166,8 @@ def main() -> int:
         print(f"Error leyendo metadatos de tabla: {exc}", file=sys.stderr)
         return 1
 
-    table_columns_set = set(table_columns)
-    missing = [col for col in columns if col not in table_columns_set]
+    table_columns_set_lower = {col.lower() for col in table_columns}
+    resolved_columns, missing = _resolve_columns_case_insensitive(columns, table_columns)
     if missing:
         print(
             "Error: estas columnas no existen en Facturas: "
@@ -157,17 +175,23 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    if args.last and args.order_by not in table_columns_set:
+    if args.last and args.order_by.lower() not in table_columns_set_lower:
         print(
             f"Error: la columna de orden '{args.order_by}' no existe en Facturas.",
             file=sys.stderr,
         )
         return 1
 
-    columns_sql = ", ".join(f"[{col}]" for col in columns)
+    order_by_resolved = args.order_by
+    if args.last:
+        order_by_resolved = next(
+            col for col in table_columns if col.lower() == args.order_by.lower()
+        )
+
+    columns_sql = ", ".join(f"[{col}]" for col in resolved_columns)
     query = f"SELECT TOP (:top_n) {columns_sql} FROM [{SOURCE_DB}].[{SOURCE_SCHEMA}].[{SOURCE_TABLE}]"
     if args.last:
-        query += f" ORDER BY [{args.order_by}] DESC"
+        query += f" ORDER BY [{order_by_resolved}] DESC"
 
     try:
         with engine.connect() as conn:
@@ -178,9 +202,9 @@ def main() -> int:
         return 1
 
     writer = csv.writer(sys.stdout)
-    writer.writerow(columns)
+    writer.writerow(resolved_columns)
     for row in rows:
-        writer.writerow([row._mapping.get(col) for col in columns])
+        writer.writerow([row._mapping.get(col) for col in resolved_columns])
 
     print(f"\nTotal filas: {len(rows)}", file=sys.stderr)
     return 0
