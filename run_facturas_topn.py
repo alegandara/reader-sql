@@ -10,7 +10,6 @@ from app.database import engine
 SOURCE_DB = "KardexVH"
 SOURCE_SCHEMA = "dbo"
 SOURCE_TABLE = "Facturas"
-LAST_ORDER_CANDIDATES = ["id", "fecha_emision", "fecha_emisi", "folio"]
 
 DEFAULT_COLUMNS = [
     "ruc_emisor",
@@ -90,11 +89,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--order-by",
-        default="",
-        help=(
-            "Columna para ordenar cuando usas --last. "
-            "Si no se indica, se detecta automaticamente."
-        ),
+        default="id",
+        help="Columna para ordenar cuando usas --last. Default: id.",
     )
     return parser.parse_args()
 
@@ -132,27 +128,6 @@ def _get_table_columns() -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-def _resolve_order_by(
-    requested_order_by: str,
-    available_columns: set[str],
-) -> str:
-    if requested_order_by:
-        if requested_order_by not in available_columns:
-            raise ValueError(
-                f"La columna de orden '{requested_order_by}' no existe en la tabla."
-            )
-        return requested_order_by
-
-    for candidate in LAST_ORDER_CANDIDATES:
-        if candidate in available_columns:
-            return candidate
-
-    raise ValueError(
-        "No se pudo detectar columna para --last. "
-        "Usa --order-by con una columna valida de Facturas."
-    )
-
-
 def main() -> int:
     args = parse_args()
     if args.top < 1 or args.top > 1000:
@@ -163,7 +138,7 @@ def main() -> int:
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
-    if args.order_by and not COLUMN_RE.match(args.order_by):
+    if not COLUMN_RE.match(args.order_by):
         print("Error: Nombre invalido en --order-by.", file=sys.stderr)
         return 1
 
@@ -182,16 +157,17 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    if args.last and args.order_by not in table_columns_set:
+        print(
+            f"Error: la columna de orden '{args.order_by}' no existe en Facturas.",
+            file=sys.stderr,
+        )
+        return 1
 
     columns_sql = ", ".join(f"[{col}]" for col in columns)
     query = f"SELECT TOP (:top_n) {columns_sql} FROM [{SOURCE_DB}].[{SOURCE_SCHEMA}].[{SOURCE_TABLE}]"
     if args.last:
-        try:
-            order_by = _resolve_order_by(args.order_by, table_columns_set)
-        except ValueError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            return 1
-        query += f" ORDER BY [{order_by}] DESC"
+        query += f" ORDER BY [{args.order_by}] DESC"
 
     try:
         with engine.connect() as conn:

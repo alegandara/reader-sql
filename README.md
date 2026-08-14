@@ -70,9 +70,6 @@ Puedes elegir otra columna de orden:
 python run_facturas_topn.py --top 10 --last --order-by fecha_emision
 ```
 
-> Nota: si la tabla no tiene `id`, el script detecta automaticamente otra columna
-> valida para ordenar (`fecha_emision`, `fecha_emisi` o `folio`).
-
 ## Uso en Windows (actualizacion constante)
 
 ### 1) Primera instalacion en Windows PowerShell
