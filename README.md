@@ -40,7 +40,7 @@ curl "http://localhost:8000/rows/dbo/Users?limit=10"
 
 ## Ejecutar consulta Facturas por linea de comando
 
-Este script ejecuta el `SELECT TOP N` sobre `[KardexVH].[dbo].[Facturas]` y muestra el resultado en formato CSV en la terminal.
+Este script ejecuta el `SELECT TOP N` sobre `[KardexVH].[dbo].[Facturas]`, trae tambien el detalle desde `[KardexVH].[dbo].[facturas_det]` por `codigounico`, y muestra el resultado en CSV en la terminal.
 
 ```bash
 python run_facturas_topn.py
@@ -60,6 +60,12 @@ Tambien puedes escoger columnas especificas:
 python run_facturas_topn.py --top 100 --columns ruc_emisor,serie,folio,neto
 ```
 
+Tambien puedes escoger columnas del detalle:
+
+```bash
+python run_facturas_topn.py --top 10 --detail-columns linea,cantidad,descripcion,neto
+```
+
 Para traer los ultimos registros (por `id` descendente):
 
 ```bash
@@ -71,6 +77,8 @@ Puedes elegir otra columna de orden:
 ```bash
 python run_facturas_topn.py --top 10 --last --order-by fecha_emisi
 ```
+
+La salida agrega una columna `details_json` con el detalle de cada factura.
 
 ## Uso en Windows (actualizacion constante)
 
