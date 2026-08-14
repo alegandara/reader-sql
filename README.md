@@ -52,6 +52,8 @@ Opcionalmente puedes cambiar el tope:
 python run_facturas_topn.py --top 200
 ```
 
+> Por defecto, `--top` trae los registros mas recientes (ordenados por `ID` descendente).
+
 Tambien puedes escoger columnas especificas:
 
 ```bash

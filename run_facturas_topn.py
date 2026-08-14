@@ -85,7 +85,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--last",
         action="store_true",
-        help="Trae los ultimos registros (ORDER BY DESC).",
+        help="Compatibilidad: ahora --top ya trae ultimos registros.",
     )
     parser.add_argument(
         "--order-by",
@@ -175,23 +175,20 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    if args.last and args.order_by.lower() not in table_columns_set_lower:
+    if args.order_by.lower() not in table_columns_set_lower:
         print(
             f"Error: la columna de orden '{args.order_by}' no existe en Facturas.",
             file=sys.stderr,
         )
         return 1
 
-    order_by_resolved = args.order_by
-    if args.last:
-        order_by_resolved = next(
-            col for col in table_columns if col.lower() == args.order_by.lower()
-        )
+    order_by_resolved = next(
+        col for col in table_columns if col.lower() == args.order_by.lower()
+    )
 
     columns_sql = ", ".join(f"[{col}]" for col in resolved_columns)
     query = f"SELECT TOP (:top_n) {columns_sql} FROM [{SOURCE_DB}].[{SOURCE_SCHEMA}].[{SOURCE_TABLE}]"
-    if args.last:
-        query += f" ORDER BY [{order_by_resolved}] DESC"
+    query += f" ORDER BY [{order_by_resolved}] DESC"
 
     try:
         with engine.connect() as conn:
