@@ -23,7 +23,7 @@ DEFAULT_COLUMNS = [
     "tip_doc",
     "folio",
     "tipo_op",
-    "fecha_emisi",
+    "fecha_emision",
     "moneda",
     "placa",
     "vendedor",
