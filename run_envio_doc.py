@@ -40,6 +40,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def _json_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip()
     if isinstance(value, Decimal):
         return float(value)
     if isinstance(value, (datetime, date)):
