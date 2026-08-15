@@ -154,3 +154,28 @@ Si tu numero de registro se busca por otro campo:
 ```bash
 python send_invoice_by_registro.py --registro F0010123 --registro-campo folio_char
 ```
+
+## Enviar factura por API usando ID
+
+Script: `run_envio_doc.py`
+
+Este procedimiento:
+- busca en `KardexVH.dbo.Facturas` por `ID`,
+- trae todos los campos de cabecera,
+- trae todos los campos de `KardexVH.dbo.facturas_det` por `codigounico`,
+- envia todo al endpoint `POST /api/invoices`,
+- y genera `sent/sent_<ID>.txt` con el curl equivalente enviado.
+- guarda tambien `result/result_<ID>.txt` con el resultado del envio.
+
+Token:
+- se toma de `API_TOKEN` en el archivo `.env`.
+
+Ejemplos:
+
+```bash
+python run_envio_doc.py --id 123
+```
+
+```bash
+python run_envio_doc.py --id 123 --dry-run
+```
