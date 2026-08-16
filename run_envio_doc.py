@@ -186,6 +186,58 @@ def _write_result_file(invoice_id: int, status_text: str, data: Any) -> Path:
     return output_path
 
 
+def _get_payload_value(payload: dict[str, Any], field_path: str) -> Any:
+    current: Any = payload
+    for part in field_path.split("."):
+        if isinstance(current, list):
+            if not part.isdigit():
+                return None
+            idx = int(part)
+            if idx < 0 or idx >= len(current):
+                return None
+            current = current[idx]
+            continue
+
+        if isinstance(current, dict):
+            if part not in current:
+                return None
+            current = current[part]
+            continue
+
+        return None
+    return current
+
+
+def _friendly_validation_errors(data: Any, payload: dict[str, Any]) -> list[str]:
+    if not isinstance(data, dict):
+        return []
+
+    errors = data.get("errors")
+    if not isinstance(errors, dict):
+        return []
+
+    friendly: list[str] = []
+    for field, messages in errors.items():
+        value = _get_payload_value(payload, field)
+        value_text = "null" if value is None else str(value)
+
+        field_messages: list[str]
+        if isinstance(messages, list):
+            field_messages = [str(msg) for msg in messages]
+        else:
+            field_messages = [str(messages)]
+
+        for msg in field_messages:
+            msg_lower = msg.lower()
+            if "exist" in msg_lower or "no existe" in msg_lower:
+                friendly.append(f'El campo {field} con valor "{value_text}" no existe.')
+            else:
+                friendly.append(
+                    f'Error en campo {field} con valor "{value_text}": {msg}'
+                )
+    return friendly
+
+
 def _send_to_api(token: str, payload: dict[str, Any]) -> tuple[int, Any]:
     headers = {
         "Authorization": f"Bearer {token}",
@@ -219,6 +271,9 @@ def main() -> int:
 
     try:
         status_code, data = _send_to_api(token, payload)
+        friendly_errors = _friendly_validation_errors(data, payload)
+        if friendly_errors and isinstance(data, dict):
+            data = {**data, "friendly_errors": friendly_errors}
         result_path = _write_result_file(args.id, f"HTTP {status_code}", data)
     except Exception as exc:  # noqa: BLE001
         result_path = _write_result_file(args.id, "ERROR", str(exc))
@@ -229,6 +284,10 @@ def main() -> int:
     print(f"HTTP {status_code}")
     if isinstance(data, dict):
         print(json.dumps(data, indent=2, ensure_ascii=False, default=str))
+        if isinstance(data.get("friendly_errors"), list):
+            print("\nErrores detectados:")
+            for err in data["friendly_errors"]:
+                print(f"- {err}")
     else:
         print(data)
     print(f"Curl guardado en: {sent_path}", file=sys.stderr)
