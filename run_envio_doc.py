@@ -21,6 +21,10 @@ ID_COLUMN = "ID"
 API_URL = "https://conectorsm.fullapps.us/api/invoices"
 
 
+
+
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Envia una factura por ID (con detalle) al API de invoices."
