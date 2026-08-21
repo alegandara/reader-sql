@@ -20,6 +20,7 @@ LINK_COLUMN = "codigounico"
 ID_COLUMN = "ID"
 API_URL = "https://conectorsm.fullapps.us/api/invoices"
 NOTE_REASON_FIELDS = {"motivo_nc", "descr_motivo_nc", "motivo_nd", "descr_motivo_nd"}
+NOTE_DESCRIPTION_FIELDS = {"descr_motivo_nc", "descr_motivo_nd"}
 
 
 
@@ -46,9 +47,15 @@ def parse_args() -> argparse.Namespace:
 
 def _json_value(value: Any, field_name: str | None = None) -> Any:
     if isinstance(value, str):
-        if field_name and field_name.lower() in NOTE_REASON_FIELDS:
-            return value.rstrip()
-        return value.strip()
+        cleaned = value.strip()
+        if field_name:
+            field_lower = field_name.lower()
+            if field_lower in NOTE_DESCRIPTION_FIELDS and cleaned:
+                # El origen guarda un caracter final no funcional; se descarta.
+                cleaned = cleaned[:-1].rstrip()
+            elif field_lower in NOTE_REASON_FIELDS:
+                cleaned = cleaned.rstrip()
+        return cleaned
     if isinstance(value, Decimal):
         return float(value)
     if isinstance(value, (datetime, date)):
