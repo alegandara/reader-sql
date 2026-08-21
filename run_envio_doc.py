@@ -19,6 +19,7 @@ DETAIL_TABLE = "facturas_det"
 LINK_COLUMN = "codigounico"
 ID_COLUMN = "ID"
 API_URL = "https://conectorsm.fullapps.us/api/invoices"
+NOTE_REASON_FIELDS = {"motivo_nc", "descr_motivo_nc", "motivo_nd", "descr_motivo_nd"}
 
 
 
@@ -43,8 +44,10 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _json_value(value: Any) -> Any:
+def _json_value(value: Any, field_name: str | None = None) -> Any:
     if isinstance(value, str):
+        if field_name and field_name.lower() in NOTE_REASON_FIELDS:
+            return value.rstrip()
         return value.strip()
     if isinstance(value, Decimal):
         return float(value)
@@ -54,7 +57,7 @@ def _json_value(value: Any) -> Any:
 
 
 def _serialize_dict(row: dict[str, Any]) -> dict[str, Any]:
-    return {key: _json_value(value) for key, value in row.items()}
+    return {key: _json_value(value, key) for key, value in row.items()}
 
 
 def _read_api_token_from_env_file() -> str:
