@@ -166,6 +166,33 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
     return payload
 
 
+def _validate_related_document_fields(payload: dict[str, Any]) -> None:
+    tip_doc = str(payload.get("tip_doc", "")).strip()
+    if tip_doc != "07":
+        return
+
+    required_fields = [
+        "tip_doc_rel",
+        "serie_rel",
+        "folio_rel",
+        "fecha_emision_rel",
+    ]
+    missing_fields: list[str] = []
+    for field in required_fields:
+        value = payload.get(field)
+        if value is None:
+            missing_fields.append(field)
+            continue
+        if isinstance(value, str) and not value.strip():
+            missing_fields.append(field)
+
+    if missing_fields:
+        joined = ", ".join(missing_fields)
+        raise ValueError(
+            "Para tip_doc=07 faltan campos de documento relacionado: " + joined
+        )
+
+
 def _build_curl_command(token: str, payload: dict[str, Any]) -> str:
     payload_json = json.dumps(payload, ensure_ascii=False, default=str)
     return (
@@ -272,6 +299,7 @@ def main() -> int:
     try:
         token = _read_api_token_from_env_file()
         payload = _build_payload(args.id)
+        _validate_related_document_fields(payload)
         curl_command = _build_curl_command(token, payload)
         sent_path = _write_sent_file(args.id, curl_command)
     except Exception as exc:  # noqa: BLE001
