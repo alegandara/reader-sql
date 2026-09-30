@@ -76,16 +76,19 @@ BEGIN
           AND i.type IN (1, 2)
           AND i.is_hypothetical = 0
     )
-    SELECT @sql = STRING_AGG(
-        'CREATE ' +
-        CASE WHEN is_unique = 1 THEN 'UNIQUE ' ELSE '' END +
-        type_desc + ' INDEX ' + QUOTENAME('IX_' + @dst_table + '_' + CAST(index_id AS VARCHAR(10))) +
-        ' ON dbo.' + QUOTENAME(@dst_table) + ' (' + key_cols + ')' +
-        CASE WHEN include_cols IS NOT NULL AND include_cols <> '' THEN ' INCLUDE (' + include_cols + ')' ELSE '' END +
-        CASE WHEN filter_definition IS NOT NULL THEN ' WHERE ' + filter_definition ELSE '' END + ';'
-    , CHAR(10))
-    FROM idx
-    WHERE key_cols IS NOT NULL AND key_cols <> '';
+    SELECT @sql = STUFF((
+        SELECT CHAR(10) +
+            'CREATE ' +
+            CASE WHEN i2.is_unique = 1 THEN 'UNIQUE ' ELSE '' END +
+            i2.type_desc + ' INDEX ' + QUOTENAME('IX_' + @dst_table + '_' + CAST(i2.index_id AS VARCHAR(10))) +
+            ' ON dbo.' + QUOTENAME(@dst_table) + ' (' + i2.key_cols + ')' +
+            CASE WHEN i2.include_cols IS NOT NULL AND i2.include_cols <> '' THEN ' INCLUDE (' + i2.include_cols + ')' ELSE '' END +
+            CASE WHEN i2.filter_definition IS NOT NULL THEN ' WHERE ' + i2.filter_definition ELSE '' END + ';'
+        FROM idx i2
+        WHERE i2.key_cols IS NOT NULL AND i2.key_cols <> ''
+        ORDER BY i2.index_id
+        FOR XML PATH(''), TYPE
+    ).value('.', 'nvarchar(max)'), 1, 1, '');
 
     IF @sql IS NOT NULL AND LEN(@sql) > 0
         EXEC sp_executesql @sql;
