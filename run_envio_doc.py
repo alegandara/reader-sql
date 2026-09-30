@@ -10,12 +10,14 @@ from typing import Any
 import requests
 from sqlalchemy import text
 
+from app.config import settings
 from app.database import engine
+from app.table_mode import facturas_tables, normalized_app_mode
 
-SOURCE_DB = "KardexVH"
-SOURCE_SCHEMA = "dbo"
-HEADER_TABLE = "Facturas"
-DETAIL_TABLE = "facturas_det"
+SOURCE_DB = settings.invoice_source_db
+SOURCE_SCHEMA = settings.invoice_source_schema
+APP_MODE = normalized_app_mode()
+HEADER_TABLE, DETAIL_TABLE = facturas_tables()
 LINK_COLUMN = "codigounico"
 ID_COLUMN = "ID"
 API_URL = "https://conectorsm.fullapps.us/api/invoices"
@@ -162,6 +164,9 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
     details = _fetch_details_by_codigounico(header.get(link_col_header), detail_columns)
 
     payload = _serialize_dict(header)
+    # Compatibilidad de nombre de campo entre origen SQL y API destino.
+    if "fecha_emisi" in payload and "fecha_emision" not in payload:
+        payload["fecha_emision"] = payload.pop("fecha_emisi")
     payload["details"] = [_serialize_dict(d) for d in details]
     return payload
 
@@ -308,6 +313,10 @@ def main() -> int:
 
     if args.dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+        print(
+            f"Modo: {APP_MODE} | Tablas: {HEADER_TABLE}, {DETAIL_TABLE}",
+            file=sys.stderr,
+        )
         print(f"\nCurl guardado en: {sent_path}", file=sys.stderr)
         return 0
 
@@ -332,6 +341,7 @@ def main() -> int:
                 print(f"- {err}")
     else:
         print(data)
+    print(f"Modo: {APP_MODE} | Tablas: {HEADER_TABLE}, {DETAIL_TABLE}", file=sys.stderr)
     print(f"Curl guardado en: {sent_path}", file=sys.stderr)
     print(f"Resultado guardado en: {result_path}", file=sys.stderr)
 

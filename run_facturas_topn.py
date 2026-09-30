@@ -8,12 +8,12 @@ from decimal import Decimal
 
 from sqlalchemy import bindparam, text
 
+from app.config import settings
 from app.database import engine
+from app.table_mode import facturas_tables, normalized_app_mode
 
-SOURCE_DB = "KardexVH"
-SOURCE_SCHEMA = "dbo"
-SOURCE_TABLE = "Facturas"
-DETAIL_TABLE = "facturas_det"
+SOURCE_DB = settings.invoice_source_db
+SOURCE_SCHEMA = settings.invoice_source_schema
 DETAIL_LINK_COLUMN = "codigounico"
 HEADER_LINK_COLUMN = "codigounico"
 
@@ -198,13 +198,14 @@ def _fetch_details_by_codigounico(
     codigos: list[str],
     detail_columns: list[str],
     detail_table_columns: list[str],
+    detail_table_name: str,
 ) -> dict[str, list[dict]]:
     if not codigos:
         return {}
 
     if DETAIL_LINK_COLUMN.lower() not in {col.lower() for col in detail_table_columns}:
         raise ValueError(
-            f"La tabla {DETAIL_TABLE} no tiene columna de enlace '{DETAIL_LINK_COLUMN}'."
+            f"La tabla {detail_table_name} no tiene columna de enlace '{DETAIL_LINK_COLUMN}'."
         )
 
     link_col_resolved = next(
@@ -223,7 +224,7 @@ def _fetch_details_by_codigounico(
     query = text(
         f"""
         SELECT {cols_sql}
-        FROM [{SOURCE_DB}].[{SOURCE_SCHEMA}].[{DETAIL_TABLE}]
+        FROM [{SOURCE_DB}].[{SOURCE_SCHEMA}].[{detail_table_name}]
         WHERE [{link_col_resolved}] IN :codigos
         ORDER BY {order_sql}
         """
@@ -248,6 +249,8 @@ def main() -> int:
         print("Error: --top debe estar entre 1 y 1000.", file=sys.stderr)
         return 1
     try:
+        source_table, detail_table = facturas_tables()
+        mode = normalized_app_mode()
         columns = _parse_columns(args.columns)
         detail_columns = _parse_detail_columns(args.detail_columns)
     except ValueError as exc:
@@ -258,8 +261,8 @@ def main() -> int:
         return 1
 
     try:
-        table_columns = _get_table_columns(SOURCE_TABLE)
-        detail_table_columns = _get_table_columns(DETAIL_TABLE)
+        table_columns = _get_table_columns(source_table)
+        detail_table_columns = _get_table_columns(detail_table)
     except Exception as exc:  # noqa: BLE001
         print(f"Error leyendo metadatos de tabla: {exc}", file=sys.stderr)
         return 1
@@ -278,7 +281,7 @@ def main() -> int:
         return 1
     if missing_detail:
         print(
-            f"Error: estas columnas no existen en {DETAIL_TABLE}: "
+            f"Error: estas columnas no existen en {detail_table}: "
             + ", ".join(missing_detail),
             file=sys.stderr,
         )
@@ -307,7 +310,7 @@ def main() -> int:
         query_columns.append(header_link_col_resolved)
 
     columns_sql = ", ".join(f"[{col}]" for col in query_columns)
-    query = f"SELECT TOP (:top_n) {columns_sql} FROM [{SOURCE_DB}].[{SOURCE_SCHEMA}].[{SOURCE_TABLE}]"
+    query = f"SELECT TOP (:top_n) {columns_sql} FROM [{SOURCE_DB}].[{SOURCE_SCHEMA}].[{source_table}]"
     query += f" ORDER BY [{order_by_resolved}] DESC"
 
     try:
@@ -330,6 +333,7 @@ def main() -> int:
             codigos,
             resolved_detail_columns,
             detail_table_columns,
+            detail_table_name=detail_table,
         )
     except Exception as exc:  # noqa: BLE001
         print(f"Error leyendo detalle de facturas: {exc}", file=sys.stderr)
@@ -345,6 +349,7 @@ def main() -> int:
         writer.writerow([row_map.get(col) for col in resolved_columns] + [details_json])
 
     print(f"\nTotal filas: {len(rows)}", file=sys.stderr)
+    print(f"Modo: {mode} | Tablas: {source_table}, {detail_table}", file=sys.stderr)
     return 0
 
 

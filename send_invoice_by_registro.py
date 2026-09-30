@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import engine
+from app.table_mode import facturas_tables, normalized_app_mode
 
 ALLOWED_REGISTRY_COLUMNS = {"id", "folio", "folio_char", "serie"}
 
@@ -47,6 +48,7 @@ def _to_json_value(value: Any) -> Any:
 
 
 def _fetch_header(registro: str, registro_campo: str) -> dict[str, Any]:
+    source_table, _ = facturas_tables()
     if registro_campo not in ALLOWED_REGISTRY_COLUMNS:
         allowed = ", ".join(sorted(ALLOWED_REGISTRY_COLUMNS))
         raise ValueError(f"registro-campo invalido. Permitidos: {allowed}")
@@ -61,7 +63,7 @@ def _fetch_header(registro: str, registro_campo: str) -> dict[str, Any]:
     sql = text(
         f"""
         SELECT TOP 1 *
-        FROM [{settings.invoice_source_db}].[{settings.invoice_source_schema}].[{settings.invoice_source_table}]
+        FROM [{settings.invoice_source_db}].[{settings.invoice_source_schema}].[{source_table}]
         WHERE [{registro_campo}] = :registro
         ORDER BY [id] DESC
         """
@@ -74,10 +76,11 @@ def _fetch_header(registro: str, registro_campo: str) -> dict[str, Any]:
 
 
 def _fetch_details(registro: str) -> list[dict[str, Any]]:
+    _, detail_table = facturas_tables()
     sql = text(
         f"""
         SELECT *
-        FROM [{settings.invoice_source_db}].[{settings.invoice_source_schema}].[{settings.invoice_detail_table}]
+        FROM [{settings.invoice_source_db}].[{settings.invoice_source_schema}].[{detail_table}]
         WHERE [{settings.invoice_detail_join_column}] = :registro
         ORDER BY [linea]
         """
@@ -164,6 +167,8 @@ def _send_invoice(payload: dict[str, Any]) -> tuple[int, dict[str, Any] | str]:
 
 def main() -> int:
     args = parse_args()
+    mode = normalized_app_mode()
+    source_table, detail_table = facturas_tables()
 
     try:
         header = _fetch_header(args.registro, args.registro_campo)
@@ -175,6 +180,7 @@ def main() -> int:
 
     if args.dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False, default=_to_json_value))
+        print(f"Modo: {mode} | Tablas: {source_table}, {detail_table}")
         return 0
 
     try:
@@ -188,6 +194,7 @@ def main() -> int:
         print(json.dumps(data, indent=2, ensure_ascii=False, default=_to_json_value))
     else:
         print(data)
+    print(f"Modo: {mode} | Tablas: {source_table}, {detail_table}")
 
     return 0 if status_code in (200, 201) else 1
 

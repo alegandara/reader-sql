@@ -80,6 +80,20 @@ python run_facturas_topn.py --top 10 --last --order-by fecha_emisi
 
 La salida agrega una columna `details_json` con el detalle de cada factura.
 
+## Modo produccion / pruebas
+
+Todos los scripts usan `APP_MODE` del `.env`:
+
+- `APP_MODE=prod` usa tablas originales.
+- `APP_MODE=test` usa tablas de respaldo para pruebas.
+
+Configuracion de tablas por modo:
+
+- `FACTURAS_TABLE_PROD=Facturas`
+- `FACTURAS_DET_TABLE_PROD=facturas_det`
+- `FACTURAS_TABLE_TEST=facturas_test`
+- `FACTURAS_DET_TABLE_TEST=facturas_det_test`
+
 ## Uso en Windows (actualizacion constante)
 
 ### 1) Primera instalacion en Windows PowerShell
@@ -127,7 +141,7 @@ Script: `send_invoice_by_registro.py`
 
 Este procedimiento:
 - busca la cabecera en `KardexVH.dbo.Facturas`,
-- intenta buscar detalles en `KardexVH.dbo.FacturasDetalle`,
+- intenta buscar detalles en `KardexVH.dbo.facturas_det`,
 - arma el payload para `POST /invoices`,
 - y envia la factura al API remoto.
 - por defecto busca por `id` (registro fisico de la tabla).
@@ -178,4 +192,12 @@ python run_envio_doc.py --id 123
 
 ```bash
 python run_envio_doc.py --id 123 --dry-run
+```
+
+## Refresco manual de tablas de prueba
+
+Para recrear `facturas_test` y `facturas_det_test` (con datos e indices), ejecuta:
+
+```sql
+:r sql/refresh_test_tables.sql
 ```

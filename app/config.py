@@ -19,8 +19,13 @@ class Settings(BaseSettings):
     invoice_api_token: str = ""
     invoice_source_db: str = "KardexVH"
     invoice_source_schema: str = "dbo"
+    app_mode: str = "prod"
+    facturas_table_prod: str = "Facturas"
+    facturas_det_table_prod: str = "facturas_det"
+    facturas_table_test: str = "facturas_test"
+    facturas_det_table_test: str = "facturas_det_test"
     invoice_source_table: str = "Facturas"
-    invoice_detail_table: str = "FacturasDetalle"
+    invoice_detail_table: str = "facturas_det"
     invoice_detail_join_column: str = "folio"
     invoice_company_id: int = 1
     invoice_branch_id: int = 1
