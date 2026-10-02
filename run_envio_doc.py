@@ -69,6 +69,28 @@ def _serialize_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {key: _json_value(value, key) for key, value in row.items()}
 
 
+def _drop_nulls(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            if item is None:
+                continue
+            child = _drop_nulls(item)
+            if child is not None:
+                cleaned[key] = child
+        return cleaned
+    if isinstance(value, list):
+        cleaned_list: list[Any] = []
+        for item in value:
+            if item is None:
+                continue
+            child = _drop_nulls(item)
+            if child is not None:
+                cleaned_list.append(child)
+        return cleaned_list
+    return value
+
+
 def _read_api_token_from_env_file() -> str:
     env_path = Path(".env")
     if not env_path.exists():
@@ -168,7 +190,7 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
     if "fecha_emisi" in payload and "fecha_emision" not in payload:
         payload["fecha_emision"] = payload.pop("fecha_emisi")
     payload["details"] = [_serialize_dict(d) for d in details]
-    return payload
+    return _drop_nulls(payload)
 
 
 def _validate_related_document_fields(payload: dict[str, Any]) -> None:
