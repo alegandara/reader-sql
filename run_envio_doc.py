@@ -189,6 +189,13 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
     # Compatibilidad de nombre de campo entre origen SQL y API destino.
     if "fecha_emisi" in payload and "fecha_emision" not in payload:
         payload["fecha_emision"] = payload.pop("fecha_emisi")
+    # Asegura clave exacta esperada por el API para observaciones.
+    if "observaciones" not in payload:
+        observaciones_key = next(
+            (k for k in payload.keys() if k.lower() == "observaciones"), None
+        )
+        if observaciones_key:
+            payload["observaciones"] = payload.pop(observaciones_key)
     payload["details"] = [_serialize_dict(d) for d in details]
     return _drop_nulls(payload)
 
