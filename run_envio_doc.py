@@ -196,6 +196,12 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
         )
         if observaciones_key:
             payload["observaciones"] = payload.pop(observaciones_key)
+    if "reparacion" not in payload:
+        reparacion_key = next(
+            (k for k in payload.keys() if k.lower() == "reparacion"), None
+        )
+        if reparacion_key:
+            payload["reparacion"] = payload.pop(reparacion_key)
     payload["details"] = [_serialize_dict(d) for d in details]
     return _drop_nulls(payload)
 
