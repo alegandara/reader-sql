@@ -23,6 +23,7 @@ ID_COLUMN = "ID"
 API_URL = "https://conectorsm.fullapps.us/api/invoices"
 NOTE_REASON_FIELDS = {"motivo_nc", "descr_motivo_nc", "motivo_nd", "descr_motivo_nd"}
 NOTE_DESCRIPTION_FIELDS = {"descr_motivo_nc", "descr_motivo_nd"}
+EXCLUDED_FIELDS = {"baja", "fecha_baja", "mot_baja"}
 
 
 
@@ -186,6 +187,11 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
     details = _fetch_details_by_codigounico(header.get(link_col_header), detail_columns)
 
     payload = _serialize_dict(header)
+    payload = {
+        key: value
+        for key, value in payload.items()
+        if key.lower() not in EXCLUDED_FIELDS
+    }
     # Compatibilidad de nombre de campo entre origen SQL y API destino.
     if "fecha_emisi" in payload and "fecha_emision" not in payload:
         payload["fecha_emision"] = payload.pop("fecha_emisi")
