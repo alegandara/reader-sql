@@ -23,7 +23,7 @@ ID_COLUMN = "ID"
 API_URL = "https://conectorsm.fullapps.us/api/invoices"
 NOTE_REASON_FIELDS = {"motivo_nc", "descr_motivo_nc", "motivo_nd", "descr_motivo_nd"}
 NOTE_DESCRIPTION_FIELDS = {"descr_motivo_nc", "descr_motivo_nd"}
-EXCLUDED_FIELDS = {"baja", "fecha_baja", "mot_baja"}
+EXCLUDED_FIELDS = {"baja", "fecha_baja", "mot_baja", "forma_pag"}
 
 
 
