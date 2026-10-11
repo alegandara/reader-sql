@@ -1,24 +1,208 @@
 # -*- coding: utf-8 -*-
 from pathlib import Path
 
-from generar_import_sql2012 import (
-    DB_NAME,
-    DETALLE_TXT,
-    DST_DET,
-    DST_DET_COLS,
-    DST_FACT,
-    DST_FACT_COLS,
-    FACTURAS_TXT,
-    STG_DET,
-    STG_FACT,
-    create_staging_sql,
-    dynamic_insert_sql,
-    insert_one_line_sql,
-    read_rows,
-)
+# Input files (Windows server paths)
+FACTURAS_TXT = Path(r"D:\import\facturas.txt")
+DETALLE_TXT = Path(r"D:\import\detalle.txt")
 
 # Output SQL script (append mode: no borra tablas destino)
 OUT_SQL = Path(r"D:\import\carga_por_linea_append.sql")
+
+DB_NAME = "KardexVH"
+
+STG_FACT = "stg_facturas_import"
+STG_DET = "stg_facturas_det_import"
+
+DST_FACT = "facturas_test"
+DST_DET = "facturas_det_test"
+
+# Destination non-identity columns expected
+DST_FACT_COLS = 72
+DST_DET_COLS = 30
+
+
+def sql_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def read_rows(path: Path) -> list[list[str]]:
+    rows: list[list[str]] = []
+    with path.open("r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            rows.append(line.rstrip("\r\n").split("|"))
+    return rows
+
+
+def create_staging_sql(table_name: str, ncols: int) -> str:
+    columns = ",\n    ".join(
+        [f"[c{i:03}] VARCHAR(4000) NULL" for i in range(1, ncols + 1)]
+    )
+    return f"""
+IF OBJECT_ID('dbo.{table_name}', 'U') IS NOT NULL DROP TABLE dbo.{table_name};
+CREATE TABLE dbo.{table_name} (
+    {columns}
+);
+""".strip()
+
+
+def insert_one_line_sql(table_name: str, row: list[str], ncols: int) -> str:
+    padded = (row + [""] * ncols)[:ncols]
+    col_list = ", ".join([f"[c{i:03}]" for i in range(1, ncols + 1)])
+
+    values_sql: list[str] = []
+    for value in padded:
+        value = value.replace("\r", "")
+        if value == "":
+            values_sql.append("NULL")
+        else:
+            values_sql.append(sql_quote(value))
+
+    return (
+        f"INSERT INTO dbo.{table_name} ({col_list}) "
+        f"VALUES ({', '.join(values_sql)});"
+    )
+
+
+def dynamic_insert_sql(dst_table: str, stg_table: str) -> str:
+    # SQL Server 2012 compatible: no TRY_CONVERT
+    return f"""
+DECLARE @insertCols NVARCHAR(MAX), @selectCols NVARCHAR(MAX), @sql NVARCHAR(MAX);
+
+;WITH c AS (
+    SELECT
+        ROW_NUMBER() OVER (ORDER BY col.column_id) AS rn,
+        col.name AS col_name,
+        typ.name AS typ_name,
+        col.is_nullable,
+        col.max_length,
+        col.precision,
+        col.scale
+    FROM sys.columns col
+    JOIN sys.types typ ON typ.user_type_id = col.user_type_id
+    WHERE col.object_id = OBJECT_ID('dbo.{dst_table}')
+      AND col.is_identity = 0
+)
+SELECT
+    @insertCols = STUFF((
+        SELECT ',' + QUOTENAME(col_name)
+        FROM c
+        ORDER BY rn
+        FOR XML PATH(''), TYPE
+    ).value('.', 'nvarchar(max)'), 1, 1, ''),
+    @selectCols = STUFF((
+        SELECT
+            ',' +
+            CASE
+                WHEN typ_name IN ('char','varchar','nchar','nvarchar') THEN
+                    CASE
+                        WHEN is_nullable = 1 THEN
+                            'NULLIF(LEFT(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))),' +
+                            CAST(CASE WHEN typ_name IN ('nchar','nvarchar') THEN max_length/2 ELSE max_length END AS varchar(10)) +
+                            '), '''')'
+                        ELSE
+                            'LEFT(ISNULL(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), ''''),' +
+                            CAST(CASE WHEN typ_name IN ('nchar','nvarchar') THEN max_length/2 ELSE max_length END AS varchar(10)) +
+                            ')'
+                    END
+
+                WHEN typ_name IN ('decimal','numeric') THEN
+                    CASE
+                        WHEN is_nullable = 1 THEN
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN NULL ' +
+                            'WHEN PATINDEX(''%[^0-9.-]%'', LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) = 0 ' +
+                            'AND LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))) NOT IN (''.'',''-'',''-.'') ' +
+                            'AND LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))) NOT LIKE ''%.%.%'' ' +
+                            'AND (CHARINDEX(''-'', LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) IN (0,1)) ' +
+                            'THEN CONVERT(' + typ_name + '(' + CAST(precision AS varchar(10)) + ',' + CAST(scale AS varchar(10)) + '), ' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) ' +
+                            'ELSE NULL END'
+                        ELSE
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN 0 ' +
+                            'WHEN PATINDEX(''%[^0-9.-]%'', LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) = 0 ' +
+                            'AND LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))) NOT IN (''.'',''-'',''-.'') ' +
+                            'AND LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))) NOT LIKE ''%.%.%'' ' +
+                            'AND (CHARINDEX(''-'', LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) IN (0,1)) ' +
+                            'THEN CONVERT(' + typ_name + '(' + CAST(precision AS varchar(10)) + ',' + CAST(scale AS varchar(10)) + '), ' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) ' +
+                            'ELSE 0 END'
+                    END
+
+                WHEN typ_name IN ('int','bigint','smallint','tinyint') THEN
+                    CASE
+                        WHEN is_nullable = 1 THEN
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN NULL ' +
+                            'WHEN ISNUMERIC(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) = 1 ' +
+                            'THEN CONVERT(' + typ_name + ', CONVERT(decimal(38,10), LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))))) ' +
+                            'ELSE NULL END'
+                        ELSE
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN 0 ' +
+                            'WHEN ISNUMERIC(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) = 1 ' +
+                            'THEN CONVERT(' + typ_name + ', CONVERT(decimal(38,10), LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))))) ' +
+                            'ELSE 0 END'
+                    END
+
+                WHEN typ_name IN ('date','datetime','smalldatetime','datetime2') THEN
+                    CASE
+                        WHEN is_nullable = 1 THEN
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN NULL ' +
+                            'WHEN ISDATE(REPLACE(REPLACE(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))),''.'',''-''),''/'',''-'')) = 1 ' +
+                            'THEN CONVERT(' + typ_name + ', REPLACE(REPLACE(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))),''.'',''-''),''/'',''-''), 120) ' +
+                            'ELSE NULL END'
+                        ELSE
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN ''19000101'' ' +
+                            'WHEN ISDATE(REPLACE(REPLACE(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))),''.'',''-''),''/'',''-'')) = 1 ' +
+                            'THEN CONVERT(' + typ_name + ', REPLACE(REPLACE(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))),''.'',''-''),''/'',''-''), 120) ' +
+                            'ELSE ''19000101'' END'
+                    END
+
+                WHEN typ_name = 'bit' THEN
+                    CASE
+                        WHEN is_nullable = 1 THEN
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN NULL ' +
+                            'WHEN LOWER(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) IN (''1'',''true'',''t'',''si'',''s'',''yes'',''y'') THEN 1 ' +
+                            'WHEN LOWER(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) IN (''0'',''false'',''f'',''no'',''n'') THEN 0 ' +
+                            'ELSE NULL END'
+                        ELSE
+                            'CASE WHEN NULLIF(' +
+                            'LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''') ' +
+                            'IS NULL THEN 0 ' +
+                            'WHEN LOWER(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) IN (''1'',''true'',''t'',''si'',''s'',''yes'',''y'') THEN 1 ' +
+                            'WHEN LOWER(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', '''')))) IN (''0'',''false'',''f'',''no'',''n'') THEN 0 ' +
+                            'ELSE 0 END'
+                    END
+
+                ELSE
+                    CASE
+                        WHEN is_nullable = 1 THEN
+                            'NULLIF(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''')'
+                        ELSE
+                            'ISNULL(LTRIM(RTRIM(REPLACE(REPLACE([c' + RIGHT('000'+CAST(rn AS varchar(3)),3) + '],CHAR(13),''''), ''.  .'', ''''))), '''')'
+                    END
+            END
+        FROM c
+        ORDER BY rn
+        FOR XML PATH(''), TYPE
+    ).value('.', 'nvarchar(max)'), 1, 1, '');
+
+SET @sql = N'INSERT INTO dbo.{dst_table} (' + @insertCols + N') SELECT ' + @selectCols + N' FROM dbo.{stg_table};';
+EXEC sp_executesql @sql;
+""".strip()
 
 
 def main() -> None:
