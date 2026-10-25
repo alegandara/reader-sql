@@ -156,6 +156,55 @@ def _resolve_column(required_name: str, columns: list[str]) -> str:
     raise ValueError(f"No existe la columna '{required_name}' en la tabla.")
 
 
+def _lookup_not_found_details(invoice_id: int, header_columns: list[str], id_col: str) -> str:
+    folio_col = next((c for c in header_columns if c.lower() == "folio"), None)
+    table_ref = f"[{SOURCE_DB}].[{SOURCE_SCHEMA}].[{HEADER_TABLE}]"
+    details = [
+        f"servidor .env: {settings.db_host}:{settings.db_port} / DB conexion={settings.db_name}",
+        f"tabla: {SOURCE_DB}.{SOURCE_SCHEMA}.{HEADER_TABLE} (modo {APP_MODE})",
+    ]
+
+    with engine.connect() as conn:
+        server_name = conn.execute(text("SELECT @@SERVERNAME")).scalar()
+        details.append(f"SQL @@SERVERNAME: {server_name}")
+
+        stats = conn.execute(
+            text(
+                f"""
+                SELECT
+                    COUNT(*) AS total_rows,
+                    MIN([{id_col}]) AS min_id,
+                    MAX([{id_col}]) AS max_id
+                FROM {table_ref}
+                """
+            )
+        ).mappings().first()
+        if stats:
+            details.append(
+                f"filas={stats['total_rows']} ID min={stats['min_id']} ID max={stats['max_id']}"
+            )
+
+        if folio_col:
+            folio_row = conn.execute(
+                text(
+                    f"""
+                    SELECT TOP 1 [{id_col}] AS real_id, [{folio_col}] AS folio
+                    FROM {table_ref}
+                    WHERE LTRIM(RTRIM(CAST([{folio_col}] AS VARCHAR(50)))) = :folio
+                    """
+                ),
+                {"folio": str(invoice_id)},
+            ).mappings().first()
+            if folio_row:
+                details.append(
+                    f"El numero {invoice_id} SI existe como {folio_col}="
+                    f"{folio_row['folio']}; el ID real es {folio_row['real_id']}. "
+                    f"Usa: python run_envio_doc.py --id {folio_row['real_id']}"
+                )
+
+    return " | ".join(str(part) for part in details)
+
+
 def _fetch_header_by_id(invoice_id: int, header_columns: list[str]) -> dict[str, Any]:
     id_col = _resolve_column(ID_COLUMN, header_columns)
     select_cols = ", ".join(f"[{col}]" for col in header_columns)
@@ -169,9 +218,10 @@ def _fetch_header_by_id(invoice_id: int, header_columns: list[str]) -> dict[str,
     with engine.connect() as conn:
         row = conn.execute(query, {"invoice_id": invoice_id}).fetchone()
     if row is None:
+        extra = _lookup_not_found_details(invoice_id, header_columns, id_col)
         raise LookupError(
             f"No existe factura con ID={invoice_id} "
-            f"en {SOURCE_DB}.{SOURCE_SCHEMA}.{HEADER_TABLE} (modo {APP_MODE})."
+            f"en {SOURCE_DB}.{SOURCE_SCHEMA}.{HEADER_TABLE} (modo {APP_MODE}). {extra}"
         )
     return dict(row._mapping)
 
@@ -366,7 +416,8 @@ def _send_to_api(token: str, payload: dict[str, Any]) -> tuple[int, Any]:
 def main() -> int:
     args = parse_args()
     print(
-        f"Modo: {APP_MODE} | Tablas: {HEADER_TABLE}, {DETAIL_TABLE} | ID={args.id}",
+        f"Modo: {APP_MODE} | Tablas: {HEADER_TABLE}, {DETAIL_TABLE} | ID={args.id} | "
+        f"SQL={settings.db_host}:{settings.db_port}",
         file=sys.stderr,
     )
 
