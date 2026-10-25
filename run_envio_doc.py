@@ -30,22 +30,43 @@ EXCLUDED_FIELDS = {"baja", "fecha_baja", "mot_baja", "forma_pag"}
 
 
 
+def _parse_invoice_id(raw_values: list[str]) -> int:
+    for raw in raw_values:
+        value = (raw or "").strip().strip('"').strip("'")
+        if not value or value.lower() in {"--id", "-id"}:
+            continue
+        if value.lstrip("-").isdigit():
+            return int(value)
+    received = " ".join(v for v in raw_values if v) or "(vacio)"
+    raise ValueError(
+        f'El ID debe ser un numero entero. Recibido: "{received}". '
+        "Usa: python run_envio_doc.py --id 123   o   envio.bat 123"
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Envia una factura por ID (con detalle) al API de invoices."
     )
     parser.add_argument(
         "--id",
-        required=True,
-        type=int,
+        required=False,
+        default=None,
         help="ID de la tabla Facturas a enviar.",
+    )
+    parser.add_argument(
+        "extra_id",
+        nargs="*",
+        help="ID opcional sin --id (para .bat: envio.bat 123).",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="No envia al API; solo muestra payload y curl.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    args.id = _parse_invoice_id([args.id, *args.extra_id])
+    return args
 
 
 def _json_value(value: Any, field_name: str | None = None) -> Any:
@@ -148,7 +169,10 @@ def _fetch_header_by_id(invoice_id: int, header_columns: list[str]) -> dict[str,
     with engine.connect() as conn:
         row = conn.execute(query, {"invoice_id": invoice_id}).fetchone()
     if row is None:
-        raise LookupError(f"No existe factura con ID={invoice_id}.")
+        raise LookupError(
+            f"No existe factura con ID={invoice_id} "
+            f"en {SOURCE_DB}.{SOURCE_SCHEMA}.{HEADER_TABLE} (modo {APP_MODE})."
+        )
     return dict(row._mapping)
 
 
@@ -341,6 +365,10 @@ def _send_to_api(token: str, payload: dict[str, Any]) -> tuple[int, Any]:
 
 def main() -> int:
     args = parse_args()
+    print(
+        f"Modo: {APP_MODE} | Tablas: {HEADER_TABLE}, {DETAIL_TABLE} | ID={args.id}",
+        file=sys.stderr,
+    )
 
     try:
         token = _read_api_token_from_env_file()
