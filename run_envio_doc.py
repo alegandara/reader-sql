@@ -91,6 +91,32 @@ def _serialize_dict(row: dict[str, Any]) -> dict[str, Any]:
     return {key: _json_value(value, key) for key, value in row.items()}
 
 
+def _pop_ci(row: dict[str, Any], field_name: str) -> Any:
+    match = next((k for k in list(row.keys()) if k.lower() == field_name.lower()), None)
+    if match is None:
+        return None
+    return row.pop(match)
+
+
+def _normalize_detail_doc_fields(row: dict[str, Any]) -> dict[str, Any]:
+    doc01 = _pop_ci(row, "doc01")
+    cant_doc01 = _pop_ci(row, "cant_doc01")
+
+    if doc01 is None:
+        row["doc01"] = ""
+    else:
+        row["doc01"] = str(doc01).strip()
+
+    if cant_doc01 is None or (isinstance(cant_doc01, str) and not cant_doc01.strip()):
+        row["cant_doc01"] = 0
+    else:
+        try:
+            row["cant_doc01"] = float(cant_doc01)
+        except (TypeError, ValueError):
+            row["cant_doc01"] = 0
+    return row
+
+
 def _drop_nulls(value: Any) -> Any:
     if isinstance(value, dict):
         cleaned: dict[str, Any] = {}
@@ -282,7 +308,9 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
         )
         if reparacion_key:
             payload["reparacion"] = payload.pop(reparacion_key)
-    payload["details"] = [_serialize_dict(d) for d in details]
+    payload["details"] = [
+        _normalize_detail_doc_fields(_serialize_dict(d)) for d in details
+    ]
     return _drop_nulls(payload)
 
 
