@@ -21,9 +21,11 @@ HEADER_TABLE, DETAIL_TABLE = facturas_tables()
 LINK_COLUMN = "codigounico"
 ID_COLUMN = "ID"
 API_URL = "https://conectorsm.fullapps.us/api/invoices"
+BAJA_API_URL = "https://conectorsm.fullapps.us/api/invoices/baja"
 NOTE_REASON_FIELDS = {"motivo_nc", "descr_motivo_nc", "motivo_nd", "descr_motivo_nd"}
 NOTE_DESCRIPTION_FIELDS = {"descr_motivo_nc", "descr_motivo_nd"}
 EXCLUDED_FIELDS = {"baja", "fecha_baja", "mot_baja", "forma_pag"}
+BAJA_TRUE_VALUES = {"1", "true", "t", "si", "s", "yes", "y"}
 
 
 
@@ -252,6 +254,65 @@ def _fetch_header_by_id(invoice_id: int, header_columns: list[str]) -> dict[str,
     return dict(row._mapping)
 
 
+def _header_value(header: dict[str, Any], field_name: str) -> Any:
+    match = next((k for k in header.keys() if k.lower() == field_name.lower()), None)
+    return None if match is None else header.get(match)
+
+
+def _is_baja_on(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float, Decimal)):
+        return int(value) == 1
+    return str(value).strip().lower() in BAJA_TRUE_VALUES
+
+
+def _required_text(value: Any, field_name: str) -> str:
+    txt = "" if value is None else str(_json_value(value, field_name)).strip()
+    if not txt:
+        raise ValueError(
+            f"El campo {field_name} esta vacio y es requerido para la baja."
+        )
+    return txt
+
+
+def _baja_date_value(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value.strip()
+    return ""
+
+
+def _build_baja_payload(invoice_id: int, header: dict[str, Any]) -> dict[str, Any]:
+    codigounico = _required_text(_header_value(header, "codigounico"), "codigounico")
+    tipo_doc = _required_text(_header_value(header, "tip_doc"), "tip_doc")
+    ruc_emisor = _required_text(_header_value(header, "ruc_emisor"), "ruc_emisor")
+    serie = _required_text(_header_value(header, "serie"), "serie")
+    folio = _required_text(_header_value(header, "folio"), "folio")
+
+    fecha_baja = _baja_date_value(_header_value(header, "fecha_baja"))
+    if not fecha_baja:
+        fecha_baja = date.today().isoformat()
+
+    mot_baja_raw = _header_value(header, "mot_baja")
+    mot_baja = "" if mot_baja_raw is None else str(_json_value(mot_baja_raw)).strip()
+
+    return {
+        "codigounico": codigounico,
+        "id_sql": invoice_id,
+        "tipo_doc": tipo_doc,
+        "serie_sunat": f"{ruc_emisor}-{tipo_doc}-{serie}-{folio}",
+        "baja": True,
+        "fecha_baja": fecha_baja,
+        "mot_baja": mot_baja,
+    }
+
+
 def _fetch_details_by_codigounico(
     codigo_unico: Any, detail_columns: list[str]
 ) -> list[dict[str, Any]]:
@@ -278,12 +339,14 @@ def _fetch_details_by_codigounico(
     return [dict(row._mapping) for row in rows]
 
 
-def _build_payload(invoice_id: int) -> dict[str, Any]:
+def _build_payload(invoice_id: int) -> tuple[str, dict[str, Any]]:
     header_columns = _get_table_columns(HEADER_TABLE)
+    header = _fetch_header_by_id(invoice_id, header_columns)
+    if _is_baja_on(_header_value(header, "baja")):
+        return "baja", _build_baja_payload(invoice_id, header)
+
     detail_columns = _get_table_columns(DETAIL_TABLE)
     link_col_header = _resolve_column(LINK_COLUMN, header_columns)
-
-    header = _fetch_header_by_id(invoice_id, header_columns)
     details = _fetch_details_by_codigounico(header.get(link_col_header), detail_columns)
 
     payload = _serialize_dict(header)
@@ -311,7 +374,7 @@ def _build_payload(invoice_id: int) -> dict[str, Any]:
     payload["details"] = [
         _normalize_detail_doc_fields(_serialize_dict(d)) for d in details
     ]
-    return _drop_nulls(payload)
+    return "invoice", _drop_nulls(payload)
 
 
 def _validate_related_document_fields(payload: dict[str, Any]) -> None:
@@ -341,10 +404,10 @@ def _validate_related_document_fields(payload: dict[str, Any]) -> None:
         )
 
 
-def _build_curl_command(token: str, payload: dict[str, Any]) -> str:
+def _build_curl_command(token: str, payload: dict[str, Any], api_url: str) -> str:
     payload_json = json.dumps(payload, ensure_ascii=False, default=str)
     return (
-        'curl -X POST "https://conectorsm.fullapps.us/api/invoices" \\\n'
+        f'curl -X POST "{api_url}" \\\n'
         f'  -H "Authorization: Bearer {token}" \\\n'
         '  -H "Accept: application/json" \\\n'
         '  -H "Content-Type: application/json" \\\n'
@@ -352,18 +415,22 @@ def _build_curl_command(token: str, payload: dict[str, Any]) -> str:
     )
 
 
-def _write_sent_file(invoice_id: int, curl_command: str) -> Path:
+def _write_sent_file(invoice_id: int, curl_command: str, kind: str = "invoice") -> Path:
     sent_dir = Path("sent")
     sent_dir.mkdir(parents=True, exist_ok=True)
-    output_path = sent_dir / f"sent_{invoice_id}.txt"
+    prefix = "sent_baja_" if kind == "baja" else "sent_"
+    output_path = sent_dir / f"{prefix}{invoice_id}.txt"
     output_path.write_text(curl_command + "\n", encoding="utf-8")
     return output_path
 
 
-def _write_result_file(invoice_id: int, status_text: str, data: Any) -> Path:
+def _write_result_file(
+    invoice_id: int, status_text: str, data: Any, kind: str = "invoice"
+) -> Path:
     result_dir = Path("result")
     result_dir.mkdir(parents=True, exist_ok=True)
-    output_path = result_dir / f"result_{invoice_id}.txt"
+    prefix = "result_baja_" if kind == "baja" else "result_"
+    output_path = result_dir / f"{prefix}{invoice_id}.txt"
 
     if isinstance(data, dict):
         body = json.dumps(data, indent=2, ensure_ascii=False, default=str)
@@ -427,13 +494,13 @@ def _friendly_validation_errors(data: Any, payload: dict[str, Any]) -> list[str]
     return friendly
 
 
-def _send_to_api(token: str, payload: dict[str, Any]) -> tuple[int, Any]:
+def _send_to_api(token: str, payload: dict[str, Any], api_url: str) -> tuple[int, Any]:
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+    response = requests.post(api_url, headers=headers, json=payload, timeout=60)
     try:
         data = response.json()
     except ValueError:
@@ -451,10 +518,13 @@ def main() -> int:
 
     try:
         token = _read_api_token_from_env_file()
-        payload = _build_payload(args.id)
-        _validate_related_document_fields(payload)
-        curl_command = _build_curl_command(token, payload)
-        sent_path = _write_sent_file(args.id, curl_command)
+        kind, payload = _build_payload(args.id)
+        api_url = BAJA_API_URL if kind == "baja" else API_URL
+        if kind != "baja":
+            _validate_related_document_fields(payload)
+        curl_command = _build_curl_command(token, payload, api_url)
+        sent_path = _write_sent_file(args.id, curl_command, kind)
+        print(f"Tipo envio: {kind}", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001
         print(f"Error preparando envio: {exc}", file=sys.stderr)
         return 1
@@ -469,13 +539,13 @@ def main() -> int:
         return 0
 
     try:
-        status_code, data = _send_to_api(token, payload)
+        status_code, data = _send_to_api(token, payload, api_url)
         friendly_errors = _friendly_validation_errors(data, payload)
         if friendly_errors and isinstance(data, dict):
             data = {**data, "friendly_errors": friendly_errors}
-        result_path = _write_result_file(args.id, f"HTTP {status_code}", data)
+        result_path = _write_result_file(args.id, f"HTTP {status_code}", data, kind)
     except Exception as exc:  # noqa: BLE001
-        result_path = _write_result_file(args.id, "ERROR", str(exc))
+        result_path = _write_result_file(args.id, "ERROR", str(exc), kind)
         print(f"Error enviando al API: {exc}", file=sys.stderr)
         print(f"Resultado guardado en: {result_path}", file=sys.stderr)
         return 1
